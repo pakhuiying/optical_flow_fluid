@@ -7,3 +7,5 @@
 - In that way, we don't have to worry about sunglint effects or radiometric correction that may introduce noise and significantly affect the brightness constancy constraint
 
 - After which, we can also train an end-to-end U-net model to automate the calculation of the optical flow of the binary sediment plume
+
+- The Horn Schunck algorithm was adapted from Shengze's [coarse_to_fine_HS_PIV](https://github.com/shengzesnail/coarse_to_fine_HS_PIV) MATLAB code and converted into python code
