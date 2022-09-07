@@ -1,5 +1,5 @@
-from unittest.mock import NonCallableMagicMock
 from utils import *
+from matplotlib.colors import ListedColormap
 
 def computeAvg(x,kernel,boundaryCondition='periodical'):
     """
@@ -24,7 +24,7 @@ def computeCurl(uv):
     # simple kernel
     # add boundary
     u1 = np.row_stack((u[0,:],u,u[-1,:]))
-    u = np.column_stack((u1[0,:],u1,u1[-1,:]))
+    u = np.column_stack((u1[:,0],u1,u1[:,-1]))
     # add boundary
     v1 = np.row_stack((v[0,:],v,v[-1,:]))
     v = np.column_stack((v1[:,0],v1,v1[:,-1]))
@@ -161,6 +161,7 @@ def gaussFilter(kSize,sigma=1):
 
     x = np.linspace(-(kSize/2),kSize/2,kSize,endpoint=True)
     G = (1/(np.sqrt(2*np.pi)*sigma)) * np.exp (-(x**2)/(2*sigma**2))
+    G = G.reshape(1,kSize)
     return G
 
 def smoothGT(w,sigma,boundaryCondition='periodical',bounMargin=3):
@@ -198,6 +199,7 @@ def smoothImg(im,sigma=1):
     """
     kSize = 2*(sigma*3)
     G = gaussFilter(kSize,sigma)
+    # print(G.shape)
     smoothedImg = scipy.signal.convolve2d(im,G,mode='same')
     smoothedImg = scipy.signal.convolve2d(smoothedImg,G.T,mode='same')
 
@@ -276,6 +278,7 @@ def expand2(ori,interpolation_method='linear'):
     x1 = np.linspace(1,n,n,endpoint=True)# - 1/2
     y1 = np.linspace(1,m,m,endpoint=True)# - 1/2
     x,y = np.meshgrid(x1,y1)
+    x1,y1 = np.meshgrid(x1,y1)
     
     #define new grid coordinates to interpolate subpixel
     x = x - 1/2
@@ -299,6 +302,9 @@ def expand2(ori,interpolation_method='linear'):
         result = scipy.interpolate.griddata(np.column_stack((x1.ravel(),y1.ravel())), result1.ravel(), (x, y), method='linear')
     
     return result
+
+matlab_min = lambda m,vec: np.array([v if v < m else m for v in vec])
+matlab_max = lambda m, vec: np.array([m if v < m else v for v in vec])
 
 def interp2_bicubic(Z,XI,YI,Dxfilter=None):
     """
@@ -433,6 +439,7 @@ def reduce2(ori,interpolation_method='linear'):
     x1 = np.linspace(1,n,n,endpoint=True)# - 1/2
     y1 = np.linspace(1,m,m,endpoint=True)# - 1/2
     x,y = np.meshgrid(x1,y1)
+    x1,y1 = np.meshgrid(x1,y1)
     x = x + 1/2
     y = y + 1/2
 
@@ -492,6 +499,7 @@ def warp_forward(img, Dx, Dy, interpolation_method='spline'):
     x1 = np.linspace(1,n,n,endpoint=True)# - 1/2
     y1 = np.linspace(1,m,m,endpoint=True)# - 1/2
     x,y = np.meshgrid(x1,y1)
+    x1,y1 = np.meshgrid(x1,y1)
     x = x - 1/2*Dx[:m,:n]
     y = y - 1/2*Dy[:m,:n]
 
@@ -522,6 +530,7 @@ def warp_inverse(img,Dx,Dy,interpolation_method='spline'):
     x1 = np.linspace(1,n,n,endpoint=True)# - 1/2
     y1 = np.linspace(1,m,m,endpoint=True)# - 1/2
     x,y = np.meshgrid(x1,y1)
+    x1,y1 = np.meshgrid(x1,y1)
 
     x = x + 1/2*Dx[:m,:n]
     y = y + 1/2*Dy[:m,:n]
@@ -545,7 +554,7 @@ def warp_inverse(img,Dx,Dy,interpolation_method='spline'):
     
     return result
 
-def HS_pyramids(im1,im2,lamb,PARA,uvInitial):
+def HS_pyramids(im1,im2,lamb,PARA,uvInitial=None):
     """
     Horn-Schunck Motion Estimation Using Multi-Pyramids (Multi-Resolution)
     Ref:	
@@ -565,8 +574,9 @@ def HS_pyramids(im1,im2,lamb,PARA,uvInitial):
     """
     # initialise the velocity field
     if uvInitial is None:
-        uInitial = np.zeros(im1.shape)
-        vInitial = np.zeros(im1.shape)
+        m,n = im1.shape[0],im1.shape[1]
+        uInitial = np.zeros((m,n))
+        vInitial = np.zeros((m,n))
         uvInitial = np.stack([uInitial,vInitial],axis=2)
 
     if len(im1.shape) > 2:
@@ -585,13 +595,16 @@ def HS_pyramids(im1,im2,lamb,PARA,uvInitial):
 
         #consruct image pyramid for gnc stage 1
         pyramid_level = PARA.pyramid_level
-        G1 = image_pyramid(im1,pyramid_level)
-        G2 = image_pyramid(im2,pyramid_level)
+        G1 = image_pyramid(im1,pyramid_level) #downsampling
+        G2 = image_pyramid(im2,pyramid_level) #downsampling
         # iteration
         level = pyramid_level
-        for l in range(level+1):
-            small_im1 = G1[l]
-            small_im2 = G2[l]
+        # for l in range(level+1):
+        for l in range(level):
+            current_level = level - 1 - l #starts with the lowest resolution pyramid then work up to higher resolution
+            print(f'Pyramid Level {current_level}')
+            small_im1 = G1[current_level]
+            small_im2 = G2[current_level]
             sz = small_im1.shape
             uv = resample_flow(np.stack([Dx,Dy],axis=2),sz)
             Dx = uv[:,:,0]
@@ -600,7 +613,7 @@ def HS_pyramids(im1,im2,lamb,PARA,uvInitial):
             for iwarp in range(warp_iter):
                 W1 = warp_forward(small_im1,Dx,Dy,PARA.interpolation_method)
                 W2 = warp_inverse(small_im2, Dx,Dy,PARA.interpolation_method)
-                Dx,Dy = HS_estimation(W1,W2,lamb, PARA.iter,Dx,Dy,PARA.boundaryCondition)
+                Dx,Dy = HS_estimation(im1 = W1,im2=W2,lamb=lamb, iter=PARA.iter,uLast=Dx,vLast=Dy,boundaryCondition=PARA.boundaryCondition) #Dx, Dy constantly updated
 
                 if (isMedianFilter is True):
                     Dx = scipy.ndimage.median_filter(Dx,sizeOfMF,mode='reflect')
@@ -629,6 +642,279 @@ class PARA:
         self.sizeOfMF = sizeOfMF
     
 
+#-----color schemes------
+
+def colorTest():
+    """
+    colorTest() creates a test image showing the color encoding scheme
+
+    According to the c++ source code of Daniel Scharstein 
+    Contact: schar@middlebury.edu
+
+    Author: Deqing Sun, Department of Computer Science, Brown University
+    Contact: dqsun@cs.brown.edu
+    $Date: 2007-10-31 20:22:10 (Wed, 31 Oct 2006) $
+    Copyright 2007, Deqing Sun.
+    """
+    truerange = 1
+    height = 151
+    width  = 151
+    r = truerange * 1.04
+    s2 = round(height/2,0) #round to nearest int
+
+    x, y = np.meshgrid(np.arange(width),np.arange(height))
+
+    u = x*r/s2 - r
+    v = y*r/s2 - r
+
+    img = computeColor(u/truerange, v/truerange)
+
+    img[s2,:,:] = 0
+    img[:,s2,:] = 0
+
+    plt.figure()
+    plt.imshow(img)
+    plt.title('Test color pattern')
+    plt.show()
+
+    # color encoding scheme for optical flow
+    img = computeColor(u/r/np.sqrt(2), v/r/np.sqrt(2))
+
+    img[s2,:,:] = 0
+    img[:,s2,:] = 0
+
+    plt.figure()
+    plt.imshow(img)
+    plt.title('Optical flow color encoding scheme')
+    plt.show()
+
+    return
+
+def computeColor(u,v):
+    """
+    computeColor color codes flow field U, V
+
+    According to the c++ source code of Daniel Scharstein 
+    Contact: schar@middlebury.edu
+
+    Author: Deqing Sun, Department of Computer Science, Brown University
+    Contact: dqsun@cs.brown.edu
+    $Date: 2007-10-31 21:20:30 (Wed, 31 Oct 2006) $
+
+    Copyright 2007, Deqing Sun.
+    """
+    # set all nan's to 0
+    nanIdx = np.isnan(u) | np.isnan(v) #boolean array
+    nanIdx_log = nanIdx.astype(int) #int logical array
+    u[np.isnan(nanIdx)] = 0
+    v[np.isnan(nanIdx)] = 0
+
+    colorwheel = makeColorwheel()
+    ncols = colorwheel.shape[0]
+    img = np.zeros((u.shape[0],u.shape[1],3))
+
+    rad = np.sqrt(u**2+v**2)
+    a = np.arctan2(-v,-u)/np.pi
+
+    fk = (a+1) /2 * (ncols-1) + 1 #-1~1 maped to 1~ncols
+    k0 = fk.astype(int)
+    k1 = k0+1
+    k1[k1==ncols+1] = 1
+    f = fk - k0
+
+    for i in range(colorwheel.shape[1]): #3
+        tmp = colorwheel[:,i]
+        col0 = tmp[k0]/255
+        col1 = tmp[k1]/255
+        col = (1-f)*col0 + f*col1
+
+        idx = rad <= 1
+        col[idx] = 1 - rad[idx]*(1-col[idx]) #increase saturation with radius
+        col[~idx] = col[~idx]*0.75 #out of range
+        img_temp = 255*col*(1-nanIdx_log)
+        img[:,:,i] = img_temp.astype(np.uint8)
+    
+    return
 
 
+def makeColorwheel():
+    """
+    color encoding scheme
 
+    adapted from the color circle idea described at
+    http://members.shaw.ca/quadibloc/other/colint.htm
+    """
+    RY = 15
+    YG = 6
+    GC = 4
+    CB = 11
+    BM = 13
+    MR = 6
+
+    ncols = RY + YG + GC + CB + BM + MR
+
+    colorwheel = np.zeros((ncols, 3)) # r, g, b represents each column
+    col = 0
+    # RY
+    colorwheel[:RY, 0] = 255
+    colorwheel[:RY, 1] = np.transpose(255*(np.arange(RY))/RY).astype(int)
+    col = col+RY
+
+    # YG
+    colorwheel[col:col+YG, 0] = 255 - np.transpose(255*(np.arange(YG))/YG).astype(int)
+    colorwheel[col:col+YG, 1] = 255
+    col = col+YG
+
+    # GC
+    colorwheel[col:col+GC, 1] = 255
+    colorwheel[col:col+GC, 2] = np.transpose(255*(np.arange(GC))/GC).astype(int)
+    col = col+GC
+
+    # CB
+    colorwheel[col:col+CB, 1] = 255 - np.transpose(255*(np.arange(CB))/CB).astype(int)
+    colorwheel[col:col+CB, 2] = 255
+    col = col+CB
+
+    # BM
+    colorwheel[col:col+BM, 2] = 255
+    colorwheel[col:col+BM, 0] = np.transpose(255*(np.arange(BM))/BM).astype(int)
+    col = col+BM
+
+    # MR
+    colorwheel[col:col+MR, 2] = 255 - np.transpose(255*(np.arange(MR))/MR).astype(int)
+    colorwheel[col:col+MR, 0] = 255
+
+    return colorwheel
+
+def flowToColor(flow,maxFlow=None):
+    """
+    flow (np.array): m x n x 2
+    flowToColor(flow, maxFlow) flowToColor color codes flow field, normalize
+    based on specified value, 
+    
+    flowToColor(flow) flowToColor color codes flow field, normalize
+    based on maximum flow present otherwise 
+
+    According to the c++ source code of Daniel Scharstein 
+    Contact: schar@middlebury.edu
+
+    Author: Deqing Sun, Department of Computer Science, Brown University
+    Contact: dqsun@cs.brown.edu
+    $Date: 2007-10-31 18:33:30 (Wed, 31 Oct 2006) $
+
+    Copyright 2007, Deqing Sun.
+    """
+    UNKNOWN_FLOW_THRESH = 1e9
+    UNKNOWN_FLOW = 1e10
+    if flow.shape[-1] > 2:
+        raise ValueError('Images have more than 2 bands!')
+    
+    height, width = flow.shape[0], flow.shape[1]
+    u = flow[:,:,0]
+    v = flow[:,:,1]
+
+    maxu = -999
+    maxv = -999
+
+    minu = 999
+    minv = 999
+    maxrad = -1
+    eps = np.finfo(float).eps
+
+    # fix unknown flow
+    idxUnknown = (np.abs(u)> UNKNOWN_FLOW_THRESH) | (np.abs(v)> UNKNOWN_FLOW_THRESH) 
+    u[idxUnknown] = 0
+    v[idxUnknown] = 0
+
+    maxu = np.max(maxu,np.max(u))
+    minu = np.min(minu,np.min(u))
+
+    maxv = np.max(maxv,np.max(v))
+    minv = np.min(minv,np.min(v))
+
+    rad = np.sqrt(u**2+v**2)
+    maxrad = np.max(maxrad,np.max(rad))
+
+    print('max flow: {:.4f} flow range: u = {:.3f} .. {:.3f}; v = {:.3f} .. {:.3f}\n'.format(maxrad, minu, maxu, minv, maxv))
+
+    if maxFlow is not None:
+        if maxFlow> 0:
+            maxrad = maxFlow
+
+    u = u/(maxrad+eps)
+    v = v/(maxrad+eps)
+
+    # compute color
+    img = computeColor(u,v)
+
+    #unknown flow
+    IDX = np.repeat(idxUnknown[:, :, np.newaxis],3,axis=2) #repmat(idxUnknown, [1 1 3]);
+    img[IDX] = 0
+
+    return img
+
+def get_colormap(alpha):
+    """
+    alpha (float): from 0 to 1, indicates transparency of colours
+    create a customised colormap compatible with matplotlib
+    """
+    cw = makeColorwheel()
+    cw_alpha = np.column_stack((cw/255,np.ones(cw.shape[0])*alpha))
+    cmap = ListedColormap(cw_alpha)
+    return cmap
+
+
+def plotFlow(u, v, imgOriginal=None,scale=1,alpha=1,step=1):
+    """
+    Creates a quiver plot that displays the optical flow vectors on the
+    original first frame (if provided). See the MATLAB Function Reference for
+    "quiver" for more info.
+
+    Usage:
+
+    u and v are the horizontal and vertical optical flow vectors,
+    respectively. 
+    imgOriginal (2d array), if supplied, is the first frame on which the
+    flow vectors would be plotted. use an empty matrix '[]' for no image.
+    rSize is the size of the region in which one vector is visible. 
+    scale over-rules the auto scaling.
+    alpha (float): from 0 to 1, indicates transparency of colours
+
+    Author: Mohd Kharbat at Cranfield Defence and Security
+    mkharbat(at)ieee(dot)org , http://mohd.kharbat.com
+    Published under a Creative Commons Attribution-Non-Commercial-Share Alike
+    3.0 Unported Licence http://creativecommons.org/licenses/by-nc-sa/3.0/
+
+    October 2008
+    Rev: Jan 2009
+    
+    Revised by Shengze Cai, March 2016
+    """
+    # initialisation
+    s = u.shape
+    rSize = np.max(s)/40 #resolution of mesh (size of grid size)
+
+    # display vector field
+    Y = np.linspace(1,u.shape[0],u.shape[0],endpoint=True)
+    X = np.linspace(1,u.shape[1],u.shape[1],endpoint=True)
+    x,y = np.meshgrid(X,Y)
+    X1,Y1 = np.arange(0.5,u.shape[1]+rSize,rSize),np.arange(0.5,u.shape[0]+rSize,rSize)
+    x1,y1 = np.meshgrid(X1,Y1)
+    u_plot = scipy.interpolate.griddata(np.column_stack((x.ravel(),y.ravel())), u.ravel(), (x1, y1), method='linear')
+    v_plot = scipy.interpolate.griddata(np.column_stack((x.ravel(),y.ravel())), v.ravel(), (x1, y1), method='linear')
+    
+    fig,ax = plt.subplots(1,2,figsize=(10,5))
+
+    if imgOriginal is not None:
+        cmap = get_colormap(alpha)
+        # plt.imshow(imgOriginal,cmap=cmap,origin='lower')
+        im = ax[1].imshow(imgOriginal,cmap=cmap)
+        plt.colorbar(im,ax=ax[1])
+        ax[1].quiver(x1[::step,::step],y1[::step,::step],u_plot[::step,::step],v_plot[::step,::step],scale=scale)
+        ax[1].set_ylim(ax[1].get_ylim()[1], ax[1].get_ylim()[0])
+    
+    ax[0].quiver(x1[::step,::step],y1[::step,::step],u_plot[::step,::step],v_plot[::step,::step],scale=scale)
+    # ax[0].set_ylim(ax[0].get_ylim()[1], ax[0].get_ylim()[0])
+    plt.show()
+
+    return

@@ -240,13 +240,23 @@ def image_pyramid(im,levels):
     #     nrow,ncol = im.shape[0],im.shape[1]
     #     im_down = cv.pyrDown(image_pyramid(im,levels-1))
 
-    pyr_dict = {i: None for i in range(levels+1)}
+    # pyr_dict = {i: None for i in range(levels+1)}
+    # pyr_dict[0] = im
+    # im_copy = im.copy()
+
+    # for i in range(levels):
+    #     nrows,ncols = im_copy.shape[0], im_copy.shape[1]
+    #     im_copy = cv.pyrDown(im_copy, dstsize=(ncols // 2, nrows // 2))
+    #     pyr_dict[i+1] = im_copy
+
+    # return pyr_dict
+    pyr_dict = {i: None for i in range(levels)}
     pyr_dict[0] = im
     im_copy = im.copy()
 
-    for i in range(levels):
+    for i in range(1,levels):
         nrows,ncols = im_copy.shape[0], im_copy.shape[1]
         im_copy = cv.pyrDown(im_copy, dstsize=(ncols // 2, nrows // 2))
-        pyr_dict[i+1] = im_copy
+        pyr_dict[i] = im_copy
 
     return pyr_dict
